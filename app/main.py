@@ -1,10 +1,13 @@
+import asyncio
 import hashlib
 import hmac
 import logging
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request, Response, BackgroundTasks, HTTPException, Query
 
 from app.config import settings
+from app.email_client import fetch_new_emails
 from app.models import IncomingMessage
 from app.triage import triage_message
 from app.router import route_triaged_message
@@ -12,7 +15,30 @@ from app.router import route_triaged_message
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("main")
 
-app = FastAPI(title="AI Lead & Message Triage Agent")
+
+async def _poll_email() -> None:
+    while True:
+        try:
+            for incoming in await asyncio.to_thread(fetch_new_emails):
+                await _process_message(incoming)
+        except Exception:
+            logger.exception("Email polling failed — will retry.")
+        await asyncio.sleep(settings.EMAIL_POLL_SECONDS)
+
+
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    if settings.EMAIL_ADDRESS:
+        task = asyncio.create_task(_poll_email())
+    else:
+        task = None
+        logger.warning("EMAIL_ADDRESS not set — email channel disabled.")
+    yield
+    if task:
+        task.cancel()
+
+
+app = FastAPI(title="AI Lead & Message Triage Agent", lifespan=lifespan)
 
 
 @app.get("/")
@@ -59,7 +85,10 @@ async def receive_webhook(request: Request, background_tasks: BackgroundTasks):
         logger.warning("Invalid webhook signature — rejecting request.")
         raise HTTPException(status_code=403, detail="Invalid signature")
 
-    payload = await request.json()
+    try:
+        payload = await request.json()
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid JSON")
 
     # Parse out every individual message in this payload
     for incoming in _extract_messages(payload):
@@ -68,29 +97,13 @@ async def receive_webhook(request: Request, background_tasks: BackgroundTasks):
     return Response(status_code=200)
 
 
-# Payload parsing — WhatsApp and Messenger
+# Payload parsing — Messenger (email arrives through _poll_email instead)
 def _extract_messages(payload: dict) -> list[IncomingMessage]:
     results: list[IncomingMessage] = []
 
     try:
         entries = payload.get("entry", [])
         for entry in entries:
-            #  WhatsApp shape
-            changes = entry.get("changes", [])
-            for change in changes:
-                value = change.get("value", {})
-                messages = value.get("messages", [])
-                for msg in messages:
-                    if msg.get("type") == "text":
-                        results.append(
-                            IncomingMessage(
-                                platform="whatsapp",
-                                sender_id=msg["from"],
-                                text=msg["text"]["body"],
-                                raw_event=msg,
-                            )
-                        )
-
             # Messenger shape
             messaging = entry.get("messaging", [])
             for event in messaging:

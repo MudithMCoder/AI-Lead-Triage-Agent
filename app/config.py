@@ -4,11 +4,9 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
-    # Meta / WhatsApp
+    # Meta webhook
     META_APP_SECRET: str
     META_VERIFY_TOKEN: str
-    WHATSAPP_ACCESS_TOKEN: str
-    WHATSAPP_PHONE_NUMBER_ID: str
 
     # Meta / Messenger
     MESSENGER_PAGE_ACCESS_TOKEN: str
@@ -16,15 +14,22 @@ class Settings(BaseSettings):
 
     # Gemini
     GEMINI_API_KEY: str
-    GEMINI_MODEL: str = "gemini-2.0-flash"
+    GEMINI_MODEL: str = "gemini-flash-lite-latest"
 
     # Google Sheets
     GOOGLE_SHEET_ID: str
     GOOGLE_SERVICE_ACCOUNT_EMAIL: str
     GOOGLE_PRIVATE_KEY: str
 
+    # Email channel (incoming, auto-replies, owner alerts). Empty EMAIL_ADDRESS disables it.
+    EMAIL_ADDRESS: str = ""
+    EMAIL_APP_PASSWORD: str = ""
+    OWNER_EMAIL: str = ""
+    IMAP_HOST: str = "imap.gmail.com"
+    SMTP_HOST: str = "smtp.gmail.com"
+    EMAIL_POLL_SECONDS: int = 30
+
     # Alerts
-    OWNER_WHATSAPP_NUMBER: str
     URGENCY_ALERT_THRESHOLD: int = 7
 
     ENVIRONMENT: str = "development"

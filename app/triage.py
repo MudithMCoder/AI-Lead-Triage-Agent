@@ -10,7 +10,7 @@ logger = logging.getLogger("triage")
 
 genai.configure(api_key=settings.GEMINI_API_KEY)
 
-SYSTEM_INSTRUCTION = """You are a message triage assistant for a small business's WhatsApp and \
+SYSTEM_INSTRUCTION = """You are a message triage assistant for a small business's email and \
 Messenger inbox. You will be given one incoming customer message. You must classify it and \
 extract any useful information.
 

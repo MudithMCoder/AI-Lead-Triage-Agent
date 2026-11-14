@@ -2,19 +2,20 @@ import logging
 
 from app.config import settings
 from app.models import IncomingMessage, MessageCategory, TriageResult
-from app.meta_client import send_whatsapp_message, send_messenger_message, send_owner_alert
+from app.meta_client import send_messenger_message
+from app.email_client import send_email_reply, send_owner_alert
 from app.sheets import log_lead
 
 logger = logging.getLogger("router")
 
 
-async def _reply(platform: str, sender_id: str, text: str) -> None:
+async def _reply(incoming: IncomingMessage, text: str) -> None:
     if not text:
         return
-    if platform == "whatsapp":
-        await send_whatsapp_message(sender_id, text)
-    elif platform == "messenger":
-        await send_messenger_message(sender_id, text)
+    if incoming.platform == "email":
+        await send_email_reply(incoming, text)
+    elif incoming.platform == "messenger":
+        await send_messenger_message(incoming.sender_id, text)
 
 
 async def route_triaged_message(incoming: IncomingMessage, result: TriageResult) -> None:
@@ -59,4 +60,4 @@ async def route_triaged_message(incoming: IncomingMessage, result: TriageResult)
         return
 
     # Otherwise, send the suggested auto-reply.
-    await _reply(platform, sender_id, result.suggested_reply)
+    await _reply(incoming, result.suggested_reply)
