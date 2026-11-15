@@ -18,6 +18,7 @@ NEW_F1 = [
     "f1f_roleplay",
 ]
 F5 = ["f5a_hidden_html_clean_plain", "f5b_html_only_hidden_div", "f5c_plain_html_split"]
+BENIGN = ["f1_control", "benign_multipart", "benign_sinhala", "benign_reply_chain"]
 
 
 def _parse(stem: str):
@@ -25,7 +26,7 @@ def _parse(stem: str):
 
 
 def test_all_new_cases_are_not_dropped():
-    for stem in NEW_F1 + F5:
+    for stem in NEW_F1 + F5 + BENIGN:
         assert _parse(stem) is not None, f"{stem} was dropped by parse_email"
 
 

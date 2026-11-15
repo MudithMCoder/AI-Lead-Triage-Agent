@@ -1,0 +1,32 @@
+From: Dilani Fernando <dilani.fernando@example.com>
+To: Lens & Light Studio <bookings@example.com>
+Subject: Family portrait session in December
+Message-ID: <benign-multipart-20261116@example.com>
+Date: Mon, 16 Nov 2026 09:05:00 +0530
+MIME-Version: 1.0
+Content-Type: multipart/alternative; boundary="BD_bm"
+
+--BD_bm
+Content-Type: text/plain; charset="utf-8"
+
+Hi,
+
+We'd like to book a family portrait session sometime in December, probably on a
+weekend morning. There will be six of us including two small children. Could you
+let me know your available dates and what a one-hour session costs?
+
+Thanks,
+Dilani
+--BD_bm
+Content-Type: text/html; charset="utf-8"
+
+<html>
+<body>
+<p>Hi,</p>
+<p>We'd like to book a family portrait session sometime in December, probably on a
+weekend morning. There will be six of us including two small children. Could you
+let me know your available dates and what a one-hour session costs?</p>
+<p>Thanks,<br>Dilani</p>
+</body>
+</html>
+--BD_bm--
