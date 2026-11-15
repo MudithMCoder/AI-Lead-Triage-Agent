@@ -6,6 +6,7 @@ import smtplib
 from email import message_from_bytes, policy
 from email.message import EmailMessage
 from email.utils import parseaddr
+from html.parser import HTMLParser
 
 from app.config import settings
 from app.models import IncomingMessage
@@ -14,6 +15,98 @@ logger = logging.getLogger("email_client")
 
 _SKIP_SENDERS = ("noreply", "no-reply", "donotreply", "mailer-daemon", "postmaster")
 _last_uid: int | None = None
+
+# Inline styles that render an element invisible to the reader. An attacker uses these to
+# feed the model text the owner never sees (F5). font-size/opacity match 0 and 0.0 only.
+_HIDDEN_STYLE = re.compile(
+    r"display\s*:\s*none"
+    r"|visibility\s*:\s*hidden"
+    r"|opacity\s*:\s*0(?:\.0+)?(?![.\d])"
+    r"|font-size\s*:\s*0(?:\.0+)?(?![.\d])",
+    re.I,
+)
+# Tags whose text content is never shown to the reader.
+_DROP_TAGS = {"script", "style", "head", "title", "noscript"}
+_VOID_TAGS = {"area", "base", "br", "col", "embed", "hr", "img", "input",
+              "link", "meta", "param", "source", "track", "wbr"}
+
+
+def _style_hidden(attrs: list[tuple[str, str | None]]) -> bool:
+    for key, value in attrs:
+        if key.lower() == "style" and value and _HIDDEN_STYLE.search(value):
+            return True
+    return False
+
+
+class _VisibleTextExtractor(HTMLParser):
+    """Collects only the text a human would see: drops comments, script/style/head, and
+    any element hidden via inline style, including that element's children."""
+
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self._parts: list[str] = []
+        self._stack: list[tuple[str, bool, bool]] = []  # (tag, is_drop, is_hidden)
+        self._drop_depth = 0
+        self._hidden_depth = 0
+        self.hidden_text_found = False  # non-whitespace text removed because inline-hidden
+
+    def handle_starttag(self, tag, attrs):
+        if tag in _VOID_TAGS:
+            return
+        drop = tag in _DROP_TAGS
+        hidden = _style_hidden(attrs)
+        self._stack.append((tag, drop, hidden))
+        if drop:
+            self._drop_depth += 1
+        if hidden:
+            self._hidden_depth += 1
+
+    def handle_startendtag(self, tag, attrs):
+        pass  # self-closing: no content to collect
+
+    def handle_endtag(self, tag):
+        for i in range(len(self._stack) - 1, -1, -1):  # tolerate unclosed inner tags
+            if self._stack[i][0] == tag:
+                for _, drop, hidden in self._stack[i:]:
+                    if drop:
+                        self._drop_depth -= 1
+                    if hidden:
+                        self._hidden_depth -= 1
+                del self._stack[i:]
+                return
+
+    def handle_data(self, data):
+        if self._drop_depth == 0 and self._hidden_depth == 0:
+            self._parts.append(data)
+        elif self._hidden_depth > 0 and data.strip():
+            self.hidden_text_found = True
+
+    def get_text(self) -> str:
+        return " ".join("".join(self._parts).split())
+
+
+def extract_visible_text(html: str) -> tuple[str, bool]:
+    """Returns (visible text, whether inline-hidden non-whitespace text was removed)."""
+    parser = _VisibleTextExtractor()
+    parser.feed(html)
+    parser.close()
+    return parser.get_text(), parser.hidden_text_found
+
+
+def _tokens(text: str) -> set[str]:
+    return set(re.findall(r"\w+", text.lower()))
+
+
+def _plain_html_mismatch(plain: str, visible: str) -> bool:
+    """True if the plain part carries substantial text the visible HTML does not (F5 split).
+    Threshold: >=5 plain tokens absent from the visible set AND >=30% of plain tokens missing.
+    The floor stops a short benign footer/signature line from tripping it; the ratio catches
+    an injected directive, which is many tokens the rendered HTML never contains."""
+    plain_set = _tokens(plain)
+    if not plain_set:
+        return False
+    missing = plain_set - _tokens(visible)
+    return len(missing) >= 5 and len(missing) / len(plain_set) >= 0.30
 
 
 def parse_email(raw: bytes) -> IncomingMessage | None:
@@ -32,10 +125,23 @@ def parse_email(raw: bytes) -> IncomingMessage | None:
     ):
         return None
 
-    part = msg.get_body(preferencelist=("plain", "html"))
-    body = part.get_content() if part else ""
-    if part is not None and part.get_content_type() == "text/html":
-        body = re.sub(r"<[^>]+>", " ", body)
+    # D1 ingest normalisation (F5): the text sent to the model is the text a human would see.
+    # For HTML that means visible text only (hidden elements/comments/script removed); for a
+    # multipart/alternative we read the visible HTML and flag when the plain part diverges.
+    plain_part = msg.get_body(preferencelist=("plain",))
+    html_part = msg.get_body(preferencelist=("html",))
+    plain_text = plain_part.get_content() if plain_part is not None else None
+    html_raw = html_part.get_content() if html_part is not None else None
+
+    flags: list[str] = []
+    if html_raw is not None:
+        body, had_hidden = extract_visible_text(html_raw)
+        if had_hidden:
+            flags.append("hidden_html_content")
+        if plain_text is not None and _plain_html_mismatch(plain_text, body):
+            flags.append("plain_html_mismatch")
+    else:
+        body = plain_text or ""
 
     subject = msg.get("Subject", "")
     return IncomingMessage(
@@ -43,6 +149,7 @@ def parse_email(raw: bytes) -> IncomingMessage | None:
         sender_id=sender,
         text=f"Subject: {subject}\n\n{body.strip()}"[:4000],
         raw_event={"subject": subject, "message_id": msg.get("Message-ID", "")},
+        flags=flags,
     )
 
 

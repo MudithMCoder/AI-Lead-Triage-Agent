@@ -30,7 +30,8 @@ class TriageResult(BaseModel):
 
 
 class IncomingMessage(BaseModel):
-    platform: str          
+    platform: str
     sender_id: str
     text: str
     raw_event: dict
+    flags: list[str] = []  # ingest-time anomalies (e.g. hidden_html_content, plain_html_mismatch)

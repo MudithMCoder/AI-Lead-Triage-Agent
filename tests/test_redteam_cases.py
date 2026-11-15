@@ -31,25 +31,38 @@ def test_all_new_cases_are_not_dropped():
 
 
 def test_f5a_control_hidden_html_never_reaches_model():
-    # multipart/alternative: get_body prefers text/plain, so the HTML directive is never read.
-    text = _parse("f5a_hidden_html_clean_plain").text
-    assert "DIRECTIVE_DIV" not in text
-    assert "DIRECTIVE_COMMENT" not in text
+    # multipart/alternative, hidden directive only in the HTML part. The directive never
+    # reaches the model (unchanged conclusion). Under D1 the model reads the *visible* HTML,
+    # and the display:none div trips the hidden_html_content flag.
+    m = _parse("f5a_hidden_html_clean_plain")
+    assert "DIRECTIVE_DIV" not in m.text
+    assert "DIRECTIVE_COMMENT" not in m.text
+    assert "hidden_html_content" in m.flags
 
 
-def test_f5b_hidden_div_and_span_survive_comment_stripped():
-    text = _parse("f5b_html_only_hidden_div").text
-    assert "DIRECTIVE_DIV" in text, "display:none div text should survive the tag-strip regex"
-    assert "DIRECTIVE_SPAN" in text, "font-size:0 span text should survive the tag-strip regex"
-    comment_survived = "DIRECTIVE_COMMENT" in text
-    assert not comment_survived, "HTML comment should be removed by the tag-strip regex"
-    print(f"    f5b: HTML-comment copy survived? {comment_survived}  (div+span reached the model)")
+def test_f5b_hidden_div_and_span_no_longer_reach_model():
+    # CHANGED by D1. Before (LOG.md F5): the display:none div and font-size:0 span text
+    # survived the `re.sub(r"<[^>]+>", " ")` tag-strip and reached Gemini. The visible-text
+    # extractor now drops hidden elements, so neither copy reaches the model and the message
+    # is flagged for human review.
+    m = _parse("f5b_html_only_hidden_div")
+    assert "DIRECTIVE_DIV" not in m.text
+    assert "DIRECTIVE_SPAN" not in m.text
+    assert "hidden_html_content" in m.flags
 
 
-def test_f5c_plain_part_directive_reaches_model():
-    # multipart/alternative: the owner sees the clean HTML, the agent reads the plain part.
-    text = _parse("f5c_plain_html_split").text
-    assert "DIRECTIVE_PLAIN" in text
+def test_f5c_plain_html_split_is_flagged_and_directive_dropped():
+    # CHANGED by D1. Before (LOG.md F5): the agent read the text/plain part (the directive),
+    # while the owner saw the clean HTML. D1 makes the model read the visible HTML instead, so
+    # the directive is gone from the model text, and the plain/HTML divergence raises a flag.
+    m = _parse("f5c_plain_html_split")
+    assert "DIRECTIVE_PLAIN" not in m.text
+    assert "plain_html_mismatch" in m.flags
+
+
+def test_benign_cases_are_not_flagged():
+    for stem in BENIGN:
+        assert _parse(stem).flags == [], f"{stem} was flagged but should be clean"
 
 
 if __name__ == "__main__":

@@ -30,6 +30,21 @@ async def route_triaged_message(incoming: IncomingMessage, result: TriageResult)
         logger.info("Archived spam from %s on %s", sender_id, platform)
         return
 
+    # D1 (F5): ingest flagged an anomaly (hidden / plain-vs-HTML split content). Hold for a
+    # human — log it, no auto-reply, and send a plain owner notice instead of letting the
+    # model-derived urgency fire an alert. Fuller policy comes in D3.
+    if incoming.flags:
+        log_lead(platform, sender_id, incoming.text, result)
+        await send_owner_alert(
+            "⚠️ Message held for review\n"
+            f"Platform: {platform}\n"
+            f"From: {sender_id}\n"
+            f"Flags: {', '.join(incoming.flags)}\n"
+            f"Summary: {result.summary}"
+        )
+        logger.info("Held for review (flags=%s): sender=%s", incoming.flags, sender_id)
+        return
+
     #  Strong leads : always logged to CRM.
     if result.category == MessageCategory.LEAD:
         log_lead(platform, sender_id, incoming.text, result)
