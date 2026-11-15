@@ -14,7 +14,7 @@ class Settings(BaseSettings):
 
     # Gemini
     GEMINI_API_KEY: str
-    GEMINI_MODEL: str = "gemini-flash-lite-latest"
+    GEMINI_MODEL: str = "gemini-3.5-flash-lite"
 
     # Google Sheets
     GOOGLE_SHEET_ID: str
