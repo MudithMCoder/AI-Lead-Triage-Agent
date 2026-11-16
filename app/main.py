@@ -2,12 +2,13 @@ import asyncio
 import hashlib
 import hmac
 import logging
+import time
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request, Response, BackgroundTasks, HTTPException, Query
 
 from app.config import settings
-from app.email_client import fetch_new_emails
+from app.email_client import fetch_new_emails, send_review_notice
 from app.models import IncomingMessage
 from app.triage import triage_message
 from app.router import route_triaged_message
@@ -129,7 +130,45 @@ def _extract_messages(payload: dict) -> list[IncomingMessage]:
 
 # Background processing - Triage Routing Process
 
+# F9: per-sender sliding-window rate limit. In-memory; a single-process deployment. _now is a
+# seam so tests can drive a fake clock.
+_now = time.monotonic
+_sender_hits: dict[str, list[float]] = {}
+_notified: dict[str, float] = {}  # sender -> time we last sent the over-limit notice
+
+
+def _rate_limited(sender_id: str, now: float) -> bool:
+    """Record this attempt and return True if the sender is over the window limit."""
+    window = settings.RATE_LIMIT_WINDOW_SECONDS
+    hits = [t for t in _sender_hits.get(sender_id, []) if now - t < window]
+    hits.append(now)
+    _sender_hits[sender_id] = hits
+    return len(hits) > settings.RATE_LIMIT_PER_SENDER
+
+
+def _should_notify(sender_id: str, now: float) -> bool:
+    """True at most once per window — so a flood yields one review notice, not thousands."""
+    last = _notified.get(sender_id)
+    if last is None or now - last >= settings.RATE_LIMIT_WINDOW_SECONDS:
+        _notified[sender_id] = now
+        return True
+    return False
+
+
 async def _process_message(incoming: IncomingMessage) -> None:
+    now = _now()
+    if _rate_limited(incoming.sender_id, now):
+        logger.warning("Rate limit exceeded: sender=%s platform=%s",
+                       incoming.sender_id, incoming.platform)
+        if _should_notify(incoming.sender_id, now):
+            await send_review_notice(
+                "⚠️ Rate limit exceeded\n"
+                f"Platform: {incoming.platform}\n"
+                f"From: {incoming.sender_id}\n"
+                "Further messages from this sender this window are not being auto-processed."
+            )
+        return
+
     # F8: never log message content. Sender, platform and length only.
     logger.info("Processing message from %s (%s), %d chars",
                 incoming.sender_id, incoming.platform, len(incoming.text))

@@ -32,6 +32,10 @@ class Settings(BaseSettings):
     # Alerts
     URGENCY_ALERT_THRESHOLD: int = 7
 
+    # F9: per-sender sliding-window rate limit (denial-of-wallet protection).
+    RATE_LIMIT_PER_SENDER: int = 5
+    RATE_LIMIT_WINDOW_SECONDS: int = 3600
+
     # D4 output validation: what the model is allowed to put in an auto-reply.
     BUSINESS_ALLOWED_DOMAINS: list[str] = []
     BUSINESS_PHONES: list[str] = []
