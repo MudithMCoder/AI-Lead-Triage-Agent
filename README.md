@@ -2,20 +2,29 @@
 
 A FastAPI service that turns a business's email inbox and Facebook Messenger page into a semi-automated lead and support pipeline. Incoming messages are classified by Gemini, then routed by a deterministic rules layer that decides whether to archive, log to a CRM sheet, alert the owner by email, and/or auto-reply.
 
+## Security
+
+This project was red-teamed and hardened as a security case study. **Full report: [`REPORT.md`](REPORT.md).**
+
+- Prompt injection through an ordinary-looking email fully hijacked the baseline agent (5/5). Hidden-HTML variants worked 10/10 and were invisible to the owner.
+- Across 8 injection payloads (40 runs) the model was fooled **20/40 at `v0-baseline` and 0/40 at `v1-hardened`**. Attacker-driven auto-replies and urgent alerts went to **0/40**, and no legitimate test email was held.
+- Threat model: [`THREAT_MODEL.md`](THREAT_MODEL.md) · run log: [`redteam/LOG.md`](redteam/LOG.md) · attack harness: [`redteam/`](redteam/)
+
 ## How it works
 
 1. **Messages arrive on one of two channels**:
    - **Email**: a background task polls the inbox over IMAP every `EMAIL_POLL_SECONDS`. Mail that was already in the inbox when the server started is skipped, so old mail never gets auto-replies.
-   - **Messenger**: Meta sends a webhook event to `POST /webhook`. The signature is verified (HMAC SHA-256) in production.
-2. **Each message is normalized** into a common `IncomingMessage` shape. For email, the subject and plain-text body are used (HTML-only mail is stripped of tags).
+   - **Messenger**: Meta sends a webhook event to `POST /webhook`. The signature (HMAC SHA-256) is always verified; only `ENVIRONMENT=test` skips it.
+2. **Each message is normalized** into a common `IncomingMessage` shape. For email, the subject and plain-text body are used. HTML is reduced to the text a reader would actually see, with hidden elements and comments dropped. Anomalies are recorded as `flags`: hidden HTML content, a plain part that doesn't match the HTML part, text that addresses the classifier or its fields, or a sender without a DMARC pass.
 3. **Loop protection** drops emails that must never be answered: our own address, `noreply`/`mailer-daemon`-style senders, auto-submitted mail, bulk/list mail, and anything with a `List-Id` header. Outgoing replies carry `Auto-Submitted: auto-replied`.
-4. **Gemini triages the message**: it classifies it, scores urgency, extracts entities (name, phone, email, product, location) and drafts a suggested reply, constrained to a strict JSON schema.
-5. **A deterministic router decides the outcome**:
+4. **Gemini triages the message**: it classifies it, scores urgency, extracts entities (name, phone, email, product, location) and drafts a suggested reply, constrained to a strict JSON schema. The message is passed as delimited, untrusted data. Senders are rate-limited before the call.
+5. **A deterministic router decides the outcome**. The model's output is advice; these rules decide:
    - `spam` → archived silently, no reply, no CRM entry, no alert
-   - `lead` / `complaint` → logged to a Google Sheet CRM
-   - urgency at or above `URGENCY_ALERT_THRESHOLD` → alert email to `OWNER_EMAIL`
+   - any ingest flag → logged, held for review with a low-priority notice to the owner, no auto-reply, no urgent alert
+   - `lead` / `complaint` → logged to a Google Sheet CRM (cells written as `RAW`, formula prefixes neutralised)
+   - urgency at or above `URGENCY_ALERT_THRESHOLD` → alert email to `OWNER_EMAIL`, marked as model-assessed with the sender unverified
    - flagged `requires_human` → no auto-reply, logged to the sheet for manual review
-   - everything else → Gemini's suggested reply is sent back on the same channel (email reply in the same thread, or Messenger message)
+   - otherwise, only a `lead` or `general_inquiry` below the alert threshold is auto-replied, and only if the reply passes validation (no URL, email or phone number outside the allowlist, length cap)
 
 Webhook processing runs in a FastAPI `BackgroundTask`, so Meta gets a response immediately without waiting on the Gemini call.
 
@@ -28,11 +37,18 @@ app/
 ├── models.py        # Shared Pydantic models: IncomingMessage, TriageResult, etc.
 ├── triage.py        # Gemini call + structured-output schema
 ├── router.py        # Deterministic routing/decision logic
-├── email_client.py  # IMAP polling, email parsing + loop protection, SMTP replies and owner alerts
+├── policy.py        # Control-language detector, reply validation, CRM cell neutralisation
+├── email_client.py  # IMAP polling, email parsing, visible-text HTML, sender auth, SMTP replies, alerts and review notices
 ├── meta_client.py   # Messenger Graph API sender
 └── sheets.py        # Google Sheets CRM logging via gspread
-tests/
-└── test_email_client.py  # Email parsing and loop-protection tests
+tests/               # 55 offline tests (no API calls): ingest, policy, router, sinks, webhook, logging, rate limit, sender auth
+redteam/
+├── harness.py       # Offline attack harness: real parse/triage/router, side effects captured, never sent
+├── score.py         # Per-case attack success rate, filterable by commit
+├── cases/           # Attack and benign .eml cases
+└── results/         # JSONL output of every run
+REPORT.md            # Security assessment report
+THREAT_MODEL.md      # Threat model and findings register
 ```
 
 ## Requirements
@@ -82,6 +98,15 @@ All Python dependencies are pinned in `requirements.txt`.
    # Alerts
    URGENCY_ALERT_THRESHOLD=7
 
+   # Security (all optional, defaults shown)
+   RATE_LIMIT_PER_SENDER=5
+   RATE_LIMIT_WINDOW_SECONDS=3600
+   REQUIRE_SENDER_AUTH=true
+   TRUSTED_AUTHSERV_ID=mx.google.com
+   BUSINESS_ALLOWED_DOMAINS=[]
+   BUSINESS_PHONES=[]
+   MAX_REPLY_CHARS=600
+
    ENVIRONMENT=development
    ```
 
@@ -91,7 +116,9 @@ All Python dependencies are pinned in `requirements.txt`.
    - SMTP uses SSL on port 465.
    - `GOOGLE_PRIVATE_KEY` is the service account's private key with literal `\n` sequences. The app converts them to real newlines at startup.
    - `GEMINI_MODEL`, `IMAP_HOST`, `SMTP_HOST`, `EMAIL_POLL_SECONDS`, `URGENCY_ALERT_THRESHOLD` and `ENVIRONMENT` have defaults and are optional.
-   - Set `ENVIRONMENT=production` to enforce webhook signature verification.
+   - Webhook signatures are always verified. `ENVIRONMENT=test` turns the check off and is meant for local tests only.
+   - `BUSINESS_ALLOWED_DOMAINS` and `BUSINESS_PHONES` (JSON lists) are the only links, emails and phone numbers an auto-reply may contain.
+   - `REQUIRE_SENDER_AUTH` holds mail whose DMARC result from `TRUSTED_AUTHSERV_ID` is not `pass`.
 
 3. **Run the app locally**
 
@@ -104,7 +131,14 @@ All Python dependencies are pinned in `requirements.txt`.
 ## Tests
 
 ```bash
-python -m tests.test_email_client
+python -m pytest tests -q
+```
+
+To re-run the attack suite (needs `GEMINI_API_KEY`; nothing is sent):
+
+```bash
+python -m redteam.harness redteam/cases --runs 5 --delay 3
+python -m redteam.score --md
 ```
 
 ## API endpoints
@@ -135,7 +169,7 @@ Each message also gets an `urgency_score` (1–10), a one-sentence `summary`, ex
 - Google Sheets credentials are validated at import time, so invalid credentials stop the app from starting rather than failing per request.
 - There's no retry/backoff on Gemini, SMTP or Graph API calls. Failures are logged, but the message is not retried or escalated beyond the log line.
 - The email poller keeps its position in memory only. Emails that arrive while the server is down are skipped on the next start.
-- Webhook signature verification is skipped when `ENVIRONMENT` is not `production`, so set it correctly in deployed environments.
+- Security residual risks (Messenger is not covered by the control-language check, encoded payloads, the Gmail app password) are listed in [`REPORT.md`](REPORT.md#9-residual-risks-and-recommendations).
 
 ## License
 

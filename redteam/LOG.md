@@ -175,7 +175,7 @@ The suite has so far been run only at the start (`v0-baseline` / Phase 2) and th
 - **Encoded payloads bypass the control-language detector.** `f1e_base64_decode` was not held (0/5); it caused no impact only because the model chose human review. A code-level control does not cover it — model-dependent, same class as Key lesson 1.
 - **Detector is pattern-based.** A payload that avoids schema field names and "triage/classification assistant" wording is caught only by D2 + the model. D3's auto-reply/alert rules still bound the impact (no auto-reply ≥ alert threshold).
 - **Gmail app password** grants full-mailbox access and cannot be scoped (THREAT_MODEL §5a).
-- **Messenger channel** is not covered by the offline harness; D2–D4 apply to it through the shared triage/router, D1/F10 are email-only.
+- **Messenger channel** is not covered by the offline harness. D2, D4 and D3's auto-reply/alert rules apply through the shared triage/router, but **the D3 control-language flag is computed only in `parse_email`**, so Messenger messages never receive it. D1 and F10 are email-only by design. Found during the Phase 4 review (REPORT.md R1); fix: run the detector in the router.
 
 ---
 

@@ -54,7 +54,7 @@ Owner-controlled test accounts only. Offline harness — no real sends. Benign c
 - **Phase 1 — threat model:** done (this document).
 - **Phase 2 — expanded attack suite:** done 2026-11-16. F1 variants (5 techniques), F4 end-to-end, F5 (3 cases). **Before numbers:** model fooled 20/40 runs (50%) across 8 injected payloads; owner alert 21/40; matched control 0/5.
 - **Phase 3 — layered defences:** done 2026-11-16, tag `v1-hardened` (`96ea944`). D1–D4 + F6–F10 fixes, 55 offline tests. **After numbers:** model fooled 0/40, impact 0/40, 35/40 held for review; no benign case held. Per-layer attribution runs (`8d04d26`, `384d197`, `16ffa73`, `986eb4a`) **pending** — see `redteam/LOG.md`.
-- **Phase 4 — report (next):** per-layer before/after table + `REPORT.md` + write-up (blog, LinkedIn, demo video).
+- **Phase 4 — report:** `REPORT.md` written 2026-11-16 (findings, defences, before/after, residual risks R1–R6, limitations); README security section added. Per-layer table pending the four attribution runs.
 
 ## 8. Phase 2 observations that shape the defences
 - Attack-looking payloads were resisted; business-plausible ones succeeded, including in Sinhala → keyword or "jailbreak detector" filters alone are insufficient.
@@ -65,4 +65,4 @@ Owner-controlled test accounts only. Offline harness — no real sends. Benign c
 - Encoded injections (e.g. base64) are not seen by the control-language detector; they are currently stopped by the model's own caution only.
 - The detector is pattern-based; payloads that avoid schema names rely on D2 + the model, with D3's auto-reply/alert rules bounding the impact.
 - Gmail app password: full-mailbox access, not scopable (§5a).
-- Messenger is outside the offline harness; it shares D2–D4, while D1 and F10 are email-only.
+- Messenger is outside the offline harness. It shares D2, D4 and D3's auto-reply/alert rules, but the control-language flag is computed only in `parse_email`, so Messenger messages never get it (REPORT.md R1). D1 and F10 are email-only.
