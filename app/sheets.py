@@ -26,7 +26,8 @@ _gc = gspread.authorize(_credentials)
 _sheet = _gc.open_by_key(settings.GOOGLE_SHEET_ID).sheet1
 
 
-def log_lead(platform: str, sender_id: str, text: str, result: TriageResult) -> None:
+def log_lead(platform: str, sender_id: str, text: str, result: TriageResult,
+             flags: list[str] | None = None) -> None:
     """
     Appends one row to the CRM sheet.
     """
@@ -40,6 +41,7 @@ def log_lead(platform: str, sender_id: str, text: str, result: TriageResult) -> 
             result.category.value,
             result.urgency_score,
             text,
+            ", ".join(flags) if flags else "",
         ]
         _sheet.append_row(row, value_input_option="USER_ENTERED")
     except Exception:

@@ -10,6 +10,7 @@ from html.parser import HTMLParser
 
 from app.config import settings
 from app.models import IncomingMessage
+from app.policy import control_language_reasons
 
 logger = logging.getLogger("email_client")
 
@@ -144,6 +145,9 @@ def parse_email(raw: bytes) -> IncomingMessage | None:
         body = plain_text or ""
 
     subject = msg.get("Subject", "")
+    # D3 (F1): message references the triage schema or addresses the classifier → flag, don't act.
+    if control_language_reasons(f"{subject} {body}"):
+        flags.append("control_language")
     return IncomingMessage(
         platform="email",
         sender_id=sender,
@@ -208,8 +212,16 @@ async def send_email_reply(incoming: IncomingMessage, text: str) -> None:
 
 
 async def send_owner_alert(text: str) -> None:
-    """Emails the business owner."""
+    """Emails the business owner an urgent alert."""
     try:
         await asyncio.to_thread(_send, settings.OWNER_EMAIL, "Urgent message alert", text)
     except Exception:
         logger.exception("Owner alert email failed")
+
+
+async def send_review_notice(text: str) -> None:
+    """Emails the owner a low-priority 'held for review' notice (not an urgent alert)."""
+    try:
+        await asyncio.to_thread(_send, settings.OWNER_EMAIL, "Message held for review", text)
+    except Exception:
+        logger.exception("Review notice email failed")

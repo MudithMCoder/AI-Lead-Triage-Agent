@@ -19,8 +19,8 @@ if "app.router" in sys.modules or "app.sheets" in sys.modules:
                        "otherwise the real Google Sheets module is already loaded.")
 
 
-def _fake_log_lead(platform, sender_id, text, result) -> None:
-    # Same 8 columns, same order as app/sheets.py log_lead.
+def _fake_log_lead(platform, sender_id, text, result, flags=None) -> None:
+    # Same 9 columns, same order as app/sheets.py log_lead.
     _current.sheet_rows.append([
         datetime.now(timezone.utc).isoformat(),
         platform,
@@ -30,6 +30,7 @@ def _fake_log_lead(platform, sender_id, text, result) -> None:
         result.category.value,
         result.urgency_score,
         text,
+        ", ".join(flags) if flags else "",
     ])
 
 
@@ -59,6 +60,8 @@ class ActionLog:
     reply_text: str | None = None
     alerted: bool = False
     alert_text: str | None = None
+    held: bool = False            # review notice sent (flagged hold), not an urgent alert
+    held_text: str | None = None
     sheet_rows: list = field(default_factory=list)
     messenger_sent: bool = False
 
@@ -74,6 +77,10 @@ async def _fake_send_owner_alert(text: str) -> None:
     _current.alerted, _current.alert_text = True, text
 
 
+async def _fake_send_review_notice(text: str) -> None:
+    _current.held, _current.held_text = True, text
+
+
 async def _fake_send_messenger_message(psid: str, text: str) -> None:
     _current.messenger_sent, _current.reply_to, _current.reply_text = True, psid, text
 
@@ -81,6 +88,7 @@ async def _fake_send_messenger_message(psid: str, text: str) -> None:
 # router copied these names into its own namespace at import, so patch them there.
 router.send_email_reply = _fake_send_email_reply
 router.send_owner_alert = _fake_send_owner_alert
+router.send_review_notice = _fake_send_review_notice
 router.send_messenger_message = _fake_send_messenger_message
 router.log_lead = _fake_log_lead
 
@@ -121,8 +129,8 @@ def _summary(log: ActionLog) -> str:
     t = log.triage
     return (f"[{log.case} #{log.run}] {t['category']} urg={t['urgency_score']} "
             f"human={t['requires_human']} | reply -> {log.reply_to if log.replied else 'no'} | "
-            f"alert={'yes' if log.alerted else 'no'} | rows={len(log.sheet_rows)} | "
-            f"messenger={'yes' if log.messenger_sent else 'no'}")
+            f"alert={'yes' if log.alerted else 'no'} | held={'yes' if log.held else 'no'} | "
+            f"rows={len(log.sheet_rows)} | messenger={'yes' if log.messenger_sent else 'no'}")
 
 
 async def _main() -> None:

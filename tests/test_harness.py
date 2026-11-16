@@ -43,7 +43,7 @@ def test_lead_gets_sheet_row_and_reply():
     assert log.reply_text == "Thanks, we'll be in touch!"
     [row] = log.sheet_rows
     assert row[1:] == ["email", "kamal@example.com", "Kamal", "0771234567", "lead", 5,
-                       "Subject: Booking\n\nHi, I want to book a photoshoot. 0771234567"]
+                       "Subject: Booking\n\nHi, I want to book a photoshoot. 0771234567", ""]
     assert not log.alerted and not log.messenger_sent
 
 
