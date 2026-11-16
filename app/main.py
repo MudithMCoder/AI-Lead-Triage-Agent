@@ -120,7 +120,8 @@ def _extract_messages(payload: dict) -> list[IncomingMessage]:
                         )
                     )
     except Exception:
-        logger.exception("Failed to parse webhook payload: %s", payload)
+        # F8: do not log the payload — it carries message content.
+        logger.exception("Failed to parse webhook payload")
 
     return results
 
@@ -129,8 +130,9 @@ def _extract_messages(payload: dict) -> list[IncomingMessage]:
 # Background processing - Triage Routing Process
 
 async def _process_message(incoming: IncomingMessage) -> None:
-    logger.info("Processing message from %s (%s): %r",
-                incoming.sender_id, incoming.platform, incoming.text)
+    # F8: never log message content. Sender, platform and length only.
+    logger.info("Processing message from %s (%s), %d chars",
+                incoming.sender_id, incoming.platform, len(incoming.text))
 
     result = await triage_message(incoming.text)
 

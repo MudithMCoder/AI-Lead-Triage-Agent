@@ -100,5 +100,6 @@ async def triage_message(text: str) -> TriageResult | None:
         data = json.loads(raw)
         return TriageResult.model_validate(data)
     except Exception as exc:
-        logger.exception("Gemini triage failed for message: %r — error: %s", text, exc)
+        # F8: log the length, never the message content.
+        logger.exception("Gemini triage failed (%d chars) — error: %s", len(text), exc)
         return None
