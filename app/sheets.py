@@ -6,6 +6,7 @@ from google.oauth2.service_account import Credentials
 
 from app.config import settings
 from app.models import TriageResult
+from app.policy import CRM_VALUE_INPUT_OPTION, neutralise_cell
 
 logger = logging.getLogger("sheets")
 
@@ -43,6 +44,8 @@ def log_lead(platform: str, sender_id: str, text: str, result: TriageResult,
             text,
             ", ".join(flags) if flags else "",
         ]
-        _sheet.append_row(row, value_input_option="USER_ENTERED")
+        # D4 (F3): write literally, and defang any formula-leading cell as defence in depth.
+        _sheet.append_row([neutralise_cell(c) for c in row],
+                          value_input_option=CRM_VALUE_INPUT_OPTION)
     except Exception:
         logger.exception("Failed to write row to Google Sheets for sender_id=%s", sender_id)

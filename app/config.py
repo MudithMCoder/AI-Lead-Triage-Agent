@@ -32,6 +32,11 @@ class Settings(BaseSettings):
     # Alerts
     URGENCY_ALERT_THRESHOLD: int = 7
 
+    # D4 output validation: what the model is allowed to put in an auto-reply.
+    BUSINESS_ALLOWED_DOMAINS: list[str] = []
+    BUSINESS_PHONES: list[str] = []
+    MAX_REPLY_CHARS: int = 600
+
     ENVIRONMENT: str = "development"
 
 

@@ -5,6 +5,7 @@ from app.models import IncomingMessage, MessageCategory, TriageResult
 from app.meta_client import send_messenger_message
 from app.email_client import send_email_reply, send_owner_alert, send_review_notice
 from app.sheets import log_lead
+from app.policy import clean_field, validate_reply
 
 logger = logging.getLogger("router")
 
@@ -42,7 +43,7 @@ async def route_triaged_message(incoming: IncomingMessage, result: TriageResult)
             f"From: {sender_id} (sender identity unverified)\n"
             f"Flags: {', '.join(flags)}\n"
             f"Model-assessed urgency (capped, not alerted): {result.urgency_score}/10\n"
-            f"Summary: {result.summary}"
+            f"Summary: {clean_field(result.summary)}"
         )
         logger.info("Held for review (flags=%s): sender=%s", flags, sender_id)
         return
@@ -63,9 +64,9 @@ async def route_triaged_message(incoming: IncomingMessage, result: TriageResult)
             f"Platform: {platform}\n"
             f"From: {sender_id} (sender identity unverified)\n"
             f"Category: {result.category.value}\n"
-            f"Summary: {result.summary}\n"
-            f"Name: {result.entities.name or 'unknown'}\n"
-            f"Phone: {result.entities.phone or 'unknown'}"
+            f"Summary: {clean_field(result.summary)}\n"
+            f"Name: {clean_field(result.entities.name or 'unknown')}\n"
+            f"Phone: {clean_field(result.entities.phone or 'unknown')}"
         )
         await send_owner_alert(alert_text)
 
@@ -82,4 +83,17 @@ async def route_triaged_message(incoming: IncomingMessage, result: TriageResult)
     # requires_human and flags are already guaranteed above; check the remaining two here.
     if (result.urgency_score < settings.URGENCY_ALERT_THRESHOLD
             and result.category in (MessageCategory.LEAD, MessageCategory.GENERAL_INQUIRY)):
+        # D4 (F2): never send a model-authored reply that smuggles a URL/email/phone off the
+        # allowlist or runs long. On rejection: no reply, flag it, notify the owner for review.
+        reasons = validate_reply(result.suggested_reply)
+        if reasons:
+            flags.append("reply_rejected")
+            await send_review_notice(
+                "⚠️ Auto-reply withheld — model output failed validation\n"
+                f"Platform: {platform}\n"
+                f"From: {sender_id} (sender identity unverified)\n"
+                f"Reasons: {'; '.join(reasons)}"
+            )
+            logger.info("Reply rejected (%s): sender=%s", reasons, sender_id)
+            return
         await _reply(incoming, result.suggested_reply)

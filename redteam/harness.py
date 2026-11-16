@@ -18,10 +18,12 @@ if "app.router" in sys.modules or "app.sheets" in sys.modules:
     raise RuntimeError("Import redteam.harness before app.router / app.sheets, "
                        "otherwise the real Google Sheets module is already loaded.")
 
+from app.policy import CRM_VALUE_INPUT_OPTION, neutralise_cell  # noqa: E402  (no Google import)
+
 
 def _fake_log_lead(platform, sender_id, text, result, flags=None) -> None:
-    # Same 9 columns, same order as app/sheets.py log_lead.
-    _current.sheet_rows.append([
+    # Mirrors app/sheets.py log_lead: same 9 columns, same RAW write + cell neutralisation (D4).
+    row = [
         datetime.now(timezone.utc).isoformat(),
         platform,
         sender_id,
@@ -31,7 +33,9 @@ def _fake_log_lead(platform, sender_id, text, result, flags=None) -> None:
         result.urgency_score,
         text,
         ", ".join(flags) if flags else "",
-    ])
+    ]
+    _current.crm_value_input_option = CRM_VALUE_INPUT_OPTION
+    _current.sheet_rows.append([neutralise_cell(c) for c in row])
 
 
 _fake_sheets = types.ModuleType("app.sheets")
@@ -63,6 +67,7 @@ class ActionLog:
     held: bool = False            # review notice sent (flagged hold), not an urgent alert
     held_text: str | None = None
     sheet_rows: list = field(default_factory=list)
+    crm_value_input_option: str | None = None  # the option the CRM sink would use (D4: RAW)
     messenger_sent: bool = False
 
 
