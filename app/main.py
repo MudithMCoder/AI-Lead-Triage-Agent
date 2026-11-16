@@ -81,7 +81,9 @@ async def receive_webhook(request: Request, background_tasks: BackgroundTasks):
     raw_body = await request.body()
     signature = request.headers.get("X-Hub-Signature-256")
 
-    if settings.ENVIRONMENT == "production" and not _verify_signature(raw_body, signature):
+    # F6: fail closed. Always verify the signature; skip only in the explicit "test" environment.
+    # An unknown or unset ENVIRONMENT verifies (a misconfiguration must not open the webhook).
+    if settings.ENVIRONMENT != "test" and not _verify_signature(raw_body, signature):
         logger.warning("Invalid webhook signature — rejecting request.")
         raise HTTPException(status_code=403, detail="Invalid signature")
 
