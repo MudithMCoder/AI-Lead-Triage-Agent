@@ -6,7 +6,12 @@ F5 split cases exactly which hidden copies reach the text the agent sends to Gem
 """
 from pathlib import Path
 
+from app.config import settings
 from app.email_client import parse_email  # pulls in app.config + app.models only; no network
+
+# These legacy cases carry no Authentication-Results header; match the offline/harness default
+# so F10 does not add sender_unauthenticated to every one of them (see test_sender_auth.py).
+settings.REQUIRE_SENDER_AUTH = False
 
 CASES = Path(__file__).resolve().parent.parent / "redteam" / "cases"
 

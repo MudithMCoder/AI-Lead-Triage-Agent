@@ -44,6 +44,10 @@ sys.modules["app.sheets"] = _fake_sheets  # app.router's "from app.sheets import
 
 from app import router  # noqa: E402  (must come after the fake sheets module)
 from app.config import settings  # noqa: E402
+
+# F10: the offline corpus predates DMARC headers, so sender-auth is OFF by default here; the
+# live service defaults it ON. Enable for a run with --sender-auth.
+settings.REQUIRE_SENDER_AUTH = False
 from app.email_client import parse_email  # noqa: E402
 from app.triage import triage_message  # noqa: E402
 
@@ -68,6 +72,7 @@ class ActionLog:
     held_text: str | None = None
     sheet_rows: list = field(default_factory=list)
     crm_value_input_option: str | None = None  # the option the CRM sink would use (D4: RAW)
+    require_sender_auth: bool = False          # F10 setting in effect for this run
     messenger_sent: bool = False
 
 
@@ -111,7 +116,8 @@ async def run_email(raw: bytes, case: str, runs: int = 5, delay: float = 1.0) ->
     commit, logs = _commit(), []
     for run in range(1, runs + 1):
         _current = ActionLog(case=case, run=run, model=settings.GEMINI_MODEL, commit=commit,
-                             timestamp=datetime.now(timezone.utc).isoformat())
+                             timestamp=datetime.now(timezone.utc).isoformat(),
+                             require_sender_auth=settings.REQUIRE_SENDER_AUTH)
         logs.append(_current)
         incoming = parse_email(raw)
         if incoming is None:
@@ -143,7 +149,10 @@ async def _main() -> None:
     p.add_argument("path", type=Path, help=".eml file or folder of .eml files")
     p.add_argument("--runs", type=int, default=5)
     p.add_argument("--delay", type=float, default=1.0, help="seconds between Gemini calls")
+    p.add_argument("--sender-auth", action="store_true",
+                   help="enable F10 DMARC checking (off by default for the legacy corpus)")
     args = p.parse_args()
+    settings.REQUIRE_SENDER_AUTH = args.sender_auth
 
     files = sorted(args.path.glob("*.eml")) if args.path.is_dir() else [args.path]
     if not files:

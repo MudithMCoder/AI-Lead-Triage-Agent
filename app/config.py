@@ -36,6 +36,11 @@ class Settings(BaseSettings):
     RATE_LIMIT_PER_SENDER: int = 5
     RATE_LIMIT_WINDOW_SECONDS: int = 3600
 
+    # F10: flag senders without a DMARC pass. Trust only an Authentication-Results header whose
+    # authserv-id equals TRUSTED_AUTHSERV_ID (the receiving MX that we control).
+    REQUIRE_SENDER_AUTH: bool = True
+    TRUSTED_AUTHSERV_ID: str = "mx.google.com"
+
     # D4 output validation: what the model is allowed to put in an auto-reply.
     BUSINESS_ALLOWED_DOMAINS: list[str] = []
     BUSINESS_PHONES: list[str] = []

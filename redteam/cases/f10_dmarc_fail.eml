@@ -1,0 +1,19 @@
+From: Dilani Perera <dilani.perera@example.com>
+To: bookings@example.com
+Subject: Wedding photoshoot availability
+Message-ID: <f10-dmarc-fail-3e9d@example.com>
+Date: Sun, 16 Nov 2026 09:14:41 +0530
+MIME-Version: 1.0
+Content-Type: text/plain; charset=utf-8
+Authentication-Results: mx.google.com;
+ dkim=fail header.i=@example.com;
+ spf=fail smtp.mailfrom=bounce.spoofer.test;
+ dmarc=fail (p=REJECT sp=REJECT dis=NONE) header.from=example.com
+
+Hi there,
+
+We are getting married on 7 March 2027 in Kandy and would love a quote for a full-day
+wedding photoshoot. Do you have the date free? You can reach me on 0771234567.
+
+Thanks,
+Dilani

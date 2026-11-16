@@ -110,6 +110,20 @@ def _plain_html_mismatch(plain: str, visible: str) -> bool:
     return len(missing) >= 5 and len(missing) / len(plain_set) >= 0.30
 
 
+def _sender_authenticated(auth_results: list[str]) -> bool:
+    """True only if the topmost Authentication-Results header from our trusted MX reports
+    dmarc=pass. Headers with any other authserv-id are attacker-forgeable and ignored (F10)."""
+    trusted = settings.TRUSTED_AUTHSERV_ID.lower()
+    for value in auth_results:  # header order: the trusted MX prepends its header at the top
+        if not value.strip():
+            continue
+        authserv = value.split(";", 1)[0].split()[0].lower()
+        if authserv == trusted:
+            m = re.search(r"dmarc\s*=\s*(\w+)", value, re.I)
+            return bool(m) and m.group(1).lower() == "pass"
+    return False  # no header from the trusted MX: cannot verify
+
+
 def parse_email(raw: bytes) -> IncomingMessage | None:
     """Turns a raw email into an IncomingMessage, or None if it must not be triaged."""
     msg = message_from_bytes(raw, policy=policy.default)
@@ -148,6 +162,10 @@ def parse_email(raw: bytes) -> IncomingMessage | None:
     # D3 (F1): message references the triage schema or addresses the classifier → flag, don't act.
     if control_language_reasons(f"{subject} {body}"):
         flags.append("control_language")
+    # F10: no DMARC pass from the trusted MX → the From address is unverified, treat with care.
+    if settings.REQUIRE_SENDER_AUTH and not _sender_authenticated(
+            msg.get_all("Authentication-Results", [])):
+        flags.append("sender_unauthenticated")
     return IncomingMessage(
         platform="email",
         sender_id=sender,
