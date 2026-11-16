@@ -10,9 +10,10 @@ from app.policy import CRM_VALUE_INPUT_OPTION, neutralise_cell
 
 logger = logging.getLogger("sheets")
 
+# F7: least privilege. open_by_key + append_row need only the spreadsheets scope; the broad
+# drive scope (read/write every file in the account's Drive) is dropped.
 SCOPES = [
     "https://www.googleapis.com/auth/spreadsheets",
-    "https://www.googleapis.com/auth/drive",
 ]
 
 _creds_dict = {

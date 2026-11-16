@@ -42,6 +42,10 @@ Fully attacker-controlled inputs: email headers + body, Messenger payloads.
 | F9 | No per-sender rate limit (denial-of-wallet) | B2 | LLM10 Unbounded Consumption | — | Code review |
 | F10 | Sender spoofing — no SPF/DKIM/DMARC check; `From` header trusted as identity | B1 | Spoofing / Improper Input Handling | — | Code review — not yet tested |
 
+## 5a. Residual risk (F7 — credentials)
+- **Sheets (fixed):** the service account now holds only `auth/spreadsheets` (was `+ auth/drive`). `open_by_key` and `append_row` work with this scope; the account can no longer read or write arbitrary Drive files.
+- **Gmail (residual):** the email channel authenticates with a Gmail **app password**, which grants **full mailbox access** (read, send, delete) and **cannot be scope-limited**. A leak of this secret compromises the whole mailbox. Recommendation: migrate to **OAuth 2.0** with the narrowest Gmail scopes (`gmail.readonly` for polling + `gmail.send` for replies) and drop the app password. Tracked as accepted residual risk until that migration.
+
 ## 6. Rules of engagement / out of scope
 Owner-controlled test accounts only. Offline harness — no real sends. Benign canary markers only, no third-party spoofing. Google / Meta infrastructure is not attacked.
 
